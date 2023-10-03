@@ -14,7 +14,7 @@ pub struct User {
 }
 
 //User login schema
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct LoginSchema {
     pub email: String,
     pub password: String,
@@ -31,7 +31,7 @@ pub struct ErrorResponse{
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TokenClaims {
     pub sub: String,
-    pub iat: usize,
+    pub tim: usize,
     pub exp: usize,
 }
 
@@ -41,7 +41,7 @@ pub struct Todos {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
     #[serde(rename = "_uid", skip_serializing_if = "Option::is_none")]
-    pub uid: Option<ObjectId>,
+    pub uid: Option<String>,
     pub description: String,
     #[serde(rename = "_createdAt", skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
