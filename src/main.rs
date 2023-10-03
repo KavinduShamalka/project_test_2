@@ -20,7 +20,7 @@ async fn main() -> std::io::Result<()> {
         .app_data(db_data.clone())
         .configure(config)
     })
-    .bind(("127.0.0.1", 8060))?
+    .bind(("127.0.0.1", 8090))?
     .run()
     .await
 }

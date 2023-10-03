@@ -4,6 +4,7 @@ use actix_web::{
     HttpResponse, cookie::Cookie,
     cookie::time::Duration as ActixWebDuration,
 };
+// use argon2::{password_hash::{SaltString, rand_core::OsRng}, PasswordHasher};
 use chrono::{Utc, Duration};
 use dotenv::dotenv;
 
@@ -48,7 +49,7 @@ impl MongoRepo {
     }
 
     //handler to validate the user's token
-    pub async fn token_validation(&self, token: &str) -> Result<Option<User>, HttpResponse>{
+    pub async fn token_validation(&self, token: &str) -> Result<Option<User>, ErrorResponse>{
 
         let secret_key = "secret".to_owned();
         
@@ -59,8 +60,6 @@ impl MongoRepo {
             &DecodingKey::from_secret(key),
             &Validation::new(Algorithm::HS256),
         );
-    
-        println!("decode: {:?}", decode);
     
         match decode {
             Ok(decoded) => {
@@ -78,11 +77,10 @@ impl MongoRepo {
                 Ok(user)
     
             }
-            Err(_) => Err(  
-                HttpResponse::BadRequest().json(ErrorResponse{
+            Err(_) => Err(ErrorResponse{
                     status: false,
-                    message: "Invalid token".to_owned()
-                }))
+                    message: "Invalid Token".to_owned()
+                })
             }
     }
     
@@ -124,29 +122,54 @@ impl MongoRepo {
 
     }
 
-    //finding product
-    pub async fn finding_todo(&self, token: &str, todo_id: ObjectId) -> Result<Option<Todos>, ErrorResponse> {
+    // //found user by email
+    // pub async fn validate_by_email(&self, email: &String) -> Result<Option<User>, ErrorResponse> {
+            
+    //     let user = match self
+    //         .user
+    //         .find_one( doc! {"email" : email}, None)
+    //         .await.ok() {
+    //             Some(user) => Ok(user),
+    //             None => {Err(ErrorResponse {
+    //                 status: false,
+    //                 message: "Invalid email or password".to_string()
+    //             })}
+    //         };
+
+    //     user
+
+    // }
+
+    //finding todo
+    pub async fn finding_todo(&self, token: &str, todo_id: &String) -> Result<Option<Todos>, ErrorResponse> {
 
         match self.token_validation(token).await.unwrap() {
-            Some(user) => {
+            Some(_) => {
+                match self.token_validation(token).await.unwrap() {
+                    Some(_) => {
+                        let id = ObjectId::parse_str(todo_id).unwrap();
+                        let todoss = self
+                            .todo
+                            .find_one( doc! {
+                                "_id" : id,
+                            }, None)
+                        .await.ok()
+                        .expect("Error finding todo");
                     
-                let user_id = user.id.unwrap();
-            
-                let product = self
-                    .todo
-                    .find_one( doc! {
-                        "_id" : todo_id,
-                        "_uid" : user_id
-                    }, None)
-                .await.ok()
-                .expect("Error finding product");
-            
-                Ok(product)
+                        Ok(todoss)
+                    },
+                    None => Err(ErrorResponse{
+                        status: false,
+                        message: "Invalid token".to_string(),
+                    })
+                }
             },
-            None => Err(ErrorResponse{
-                status: false,
-                message: "User not found".to_string(),
-            })
+            None => {
+                Err(ErrorResponse{
+                    status: false,
+                    message: "Invalid username or password".to_owned()
+                })
+            }
         }
     }
 
@@ -165,6 +188,11 @@ impl MongoRepo {
                 }
             )
         } else {
+
+            // let salt = SaltString::generate(OsRng);
+            // let argon  = argon2::Argon2::default();
+
+            // let password_hashed = argon.hash_password(user.password.as_bytes(), &salt).unwrap();
 
             let doc = User {
                 id: None,
@@ -196,13 +224,13 @@ impl MongoRepo {
                 let id = user.id.unwrap();  //Convert Option<ObjectId> to ObjectId using unwrap()
 
                 let now = Utc::now();
-                let iat = now.timestamp() as usize;
+                let tim = now.timestamp() as usize;
                 
-                let exp = (now + Duration::minutes(1)).timestamp() as usize;
+                let exp = (now + Duration::minutes(10)).timestamp() as usize;
                 let claims: TokenClaims = TokenClaims {
                     sub: id.to_string(),
                     exp,
-                    iat,
+                    tim,
                 };
 
                 let token = encode(
@@ -234,7 +262,7 @@ impl MongoRepo {
     }
 
     //Add todo handler
-    pub async fn add_todo_handler(&self, todo: Todos, token: &str) -> Result<HttpResponse, ErrorResponse> {
+    pub async fn add_todo_handler(&self, todo: Todos, token: &str) -> Result<HttpResponse, HttpResponse> {
 
         match self.token_validation(token).await.unwrap(){
 
@@ -244,7 +272,7 @@ impl MongoRepo {
 
                 let new_todo = Todos {
                     id: None,
-                    uid: Some(id),
+                    uid: Some(id.to_string()),
                     created_at: Some(Utc::now()),
                     description: todo.description,
                 };
@@ -259,10 +287,13 @@ impl MongoRepo {
                 Ok(HttpResponse::Ok().json(json!({"status" : "success" , "Inserted todo" : insert_todo})))
             },
             None => {
-                Err(ErrorResponse {
+                // Err(HttpResponse::Ok().json(json!({"status" : "success" , "Inserted todo" : "failed"})))
+                let error_response = ErrorResponse {
                     status: false,
-                    message: "No user found".to_string(),
-                })               
+                    message: "Inserting todo failed.".to_string(),
+                };
+                let json_response = HttpResponse::Ok().json(error_response);
+                Err(json_response)
             }
         }
     }
@@ -274,14 +305,14 @@ impl MongoRepo {
 
             Some(_) => {
 
-                let todoid = ObjectId::parse_str(todo_id).unwrap();
+                // let todoid = ObjectId::parse_str(todo_id).unwrap();
 
-                match self.finding_todo(&token, todoid).await.unwrap() {
+                match self.finding_todo(&token, &todo_id).await.unwrap() {
 
                     Some(_) => {
 
                         let filter = doc! {
-                            "_id" : todoid
+                            "_id" : todo_id.clone()
                         };
 
 
@@ -306,7 +337,7 @@ impl MongoRepo {
                         return Err(
                             ErrorResponse{
                                 status: false,
-                                message: "Product not found".to_owned()
+                                message: "Todo not found".to_owned()
                             }
                         )
                     }
@@ -316,7 +347,7 @@ impl MongoRepo {
             None => {
                 Err(ErrorResponse {
                     status: false,
-                    message: "Not found user".to_string(),
+                    message: "Invalid token".to_string(),
                 })              
             }
         }
@@ -329,9 +360,9 @@ impl MongoRepo {
     
             Some(user) => {
     
-                let id = ObjectId::parse_str(todo_id).unwrap();
+                // let id = ObjectId::parse_str(todo_id).unwrap();
     
-                match self.finding_todo(&token, id).await.unwrap() {
+                match self.finding_todo(&token, &todo_id).await.unwrap() {
     
                     Some(todo) => {
     
@@ -375,7 +406,7 @@ impl MongoRepo {
                 let user_id = user.id.unwrap();
 
                 let doc = doc! {
-                    "_uid" : user_id
+                    "_uid" : user_id.to_hex(),
                 };
 
                 let mut todo_list = self
